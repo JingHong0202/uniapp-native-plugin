@@ -5,6 +5,7 @@
 # Support Platform 
 
 - Android
+- iOS
 
 # Usage
 
