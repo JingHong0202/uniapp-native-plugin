@@ -4,7 +4,7 @@
 
 # Support Platform
 
-- Android （5 - 12）
+- Android （5 - 13）
 - iOS （11 - 16）
 
 # Usage
@@ -21,7 +21,12 @@ ioPlugin.queryAsync(
     limit: 10, // 返回数量
     page: 1, // 页数
     mime: ['image/png', 'image/jpeg'], // 返回指定 MIMETYPE 类型的文件,传数组可多项
-    isHideThumb: false, // 是否禁止返回缩略图 目前只支持 type 值为 image类型时才会生效,其他类型无效
+    thumb: {
+      enable: true, // 是否返回缩略图
+      scaleW: '.5', // 缩略图宽度缩小系数
+      scaleH: '.5', // 缩略图高度缩小系数
+      quality: 100, // 图片整体质量
+    }, // 缩略图配置，只对图片和视频生效
   },
   res => {
     // 返回值在此回调进行接受
@@ -59,6 +64,18 @@ ioPlugin.openFileManager(
     console.log(res.length);
   }
 );
+
+// 根据资源id获取对应的缩略图
+surpriseIo.queryImgThumbs(id, res => {}, {
+  // 跟上面的thumb一样
+});
+
+surpriseIo.queryVideoThumbs(id, res => {}, {
+  // 跟上面的thumb一样
+});
+
+// 清除缩略图缓存
+surpriseIo.clearThumbs()
 ```
 
 iOS:
@@ -100,25 +117,34 @@ ioPlugin.queryAlbumAssets(
 );
 
 // 弹出系统自带的相册选择器
-ioPlugin.openMediaSelector({
+ioPlugin.openMediaSelector(
+  {
     isEdit: true, // 是否可以编辑 ios14 以下支持
-    limit: 10 //  选择最大值 ios14 以上支持
-},res => {})
+    limit: 10, //  选择最大值 ios14 以上支持
+  },
+  res => {}
+);
 
 // 弹出系统文件选择器
 /**
  *  types 参考链接 https://developer.apple.com/library/archive/documentation/Miscellaneous/Reference/UTIRef/Articles/System-DeclaredUniformTypeIdentifiers.html#//apple_ref/doc/uid/TP40009259-SW1/'
  */
-ioPlugin.openDocumentPicker({
+ioPlugin.openDocumentPicker(
+  {
     multiple: true, // 是否可以多选
-    types: ["public.text"] // 可以选择的文件类型
-},res => {})
+    types: ['public.text'], // 可以选择的文件类型
+  },
+  res => {}
+);
 
 // 获取视频封面
-ioPlugin.getVideoThumbnail({
-    localIdentifier: '' ,// 文件标识
-    path: "" // 视频地址
-},res => {})
+ioPlugin.getVideoThumbnail(
+  {
+    localIdentifier: '', // 文件标识
+    path: '', // 视频地址
+  },
+  res => {}
+);
 
 // 设置缩略图生成配置 (会影响到缩略图画质、大小)
 /**
@@ -130,15 +156,15 @@ ioPlugin.getVideoThumbnail({
         };
  */
 ioPlugin.setSettings({
-    targetSize: [
-        100, // width
-        100 // height
-    ],
-    contentMode: 0
-})
+  targetSize: [
+    100, // width
+    100, // height
+  ],
+  contentMode: 0,
+});
 
 // 清空缩略图缓存
-ioPlugin.clearAssetsDirectory()
+ioPlugin.clearAssetsDirectory();
 // 对选择过的文件进行停止授权
-ioPlugin.stopAccessingSecurityScopedResource()
+ioPlugin.stopAccessingSecurityScopedResource();
 ```
