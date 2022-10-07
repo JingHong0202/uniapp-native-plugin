@@ -1,16 +1,17 @@
 package io.surprise.file;
 
 
+import static android.content.pm.PackageManager.PERMISSION_GRANTED;
+
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.MediaStore;
-import android.util.Log;
 
 import androidx.annotation.Nullable;
+import androidx.core.app.ActivityCompat;
 
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
@@ -20,6 +21,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 
+import io.dcloud.common.util.BaseInfo;
 import io.dcloud.feature.uniapp.annotation.UniJSMethod;
 import io.dcloud.feature.uniapp.bridge.UniJSCallback;
 import io.dcloud.feature.uniapp.common.UniModule;
@@ -32,21 +34,29 @@ public class Manager extends UniModule {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        if (requestCode == 110) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+        if (grantResults.length > 0 ) {
+            boolean status = true;
+            for (int grant : grantResults) {
+                if (PERMISSION_GRANTED != grant) {
+                    status = false;
+                    continue;
+                }
+            }
+            if (status) {
                 // 授权成功
-                Log.d(TAG, "onRequestPermissionsResult: success");
-                queryAsync(Common.JsonParams, Common.Callback);
+                if (requestCode == 110) {
+                    queryAsync(Common.JsonParams, Common.Callback);
+                } else if (requestCode == 111) {
+                    openFileManager(Common.JsonParams, Common.Callback);
+                }
                 Common.JsonParams = null;
                 Common.Callback = null;
             } else {
                 // 授权失败
-                Log.d(TAG, "onRequestPermissionsResult: fail");
-                Common.showPerMissionToast(mUniSDKInstance.getContext(), "该功能需要授权存储权限才能正常运行");
-
+                Common.showPerMissionToast(mUniSDKInstance.getContext(), "该功能需要授权相应的权限才能正常运行");
+                Common.requestPermission(mUniSDKInstance.getContext(), requestCode);
             }
-        } else {
-            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         }
 
     }
@@ -64,9 +74,20 @@ public class Manager extends UniModule {
 //    }
 
 
+
+
     @UniJSMethod()
     public void openFileManager(JSONObject JsonParams, UniJSCallback callback) {
         if (mUniSDKInstance != null && mUniSDKInstance.getContext() instanceof Activity && callback != null) {
+
+            if (!Common.checkPermission(mUniSDKInstance.getContext())) {
+                ActivityCompat.requestPermissions((Activity) mUniSDKInstance.getContext(), Common.getNeedsPermission(),111);
+                Common.JsonParams = JsonParams;
+                Common.Callback = callback;
+//            Common.requestPermission(context, JsonParams, callback);
+                return;
+            }
+
             Intent intent = new Intent(mUniSDKInstance.getContext(), FileManagerActivity.class);
             if (JsonParams.containsKey("options") && JsonParams.getString("options") != null && !JsonParams.getString("options").equals("[]")) {
                 intent.putExtra("options", JsonParams.getString("options"));
@@ -99,18 +120,23 @@ public class Manager extends UniModule {
     public void queryAsync(@Nullable JSONObject JsonParams, UniJSCallback callback) {
         if (callback == null && callback instanceof UniJSCallback) return;
         Context context = mUniSDKInstance.getContext();
-        if (Common.checkPermission(context)) {
-            Common.requestPermission(context, JsonParams, callback);
+        if (!Common.checkPermission(context)) {
+            ActivityCompat.requestPermissions((Activity) context, Common.getNeedsPermission(),110);
+            Common.JsonParams = JsonParams;
+            Common.Callback = callback;
+//            Common.requestPermission(context, JsonParams, callback);
             return;
         }
 
         String type = null;
         int limit = 0, page = 0;
+        JSONObject thumbOptions = new JSONObject();
         if (JsonParams instanceof JSONObject) {
             type = JsonParams.getString("type");
             limit = JsonParams.getIntValue("limit");
             page = JsonParams.getIntValue("page");
             JSONArray mimeFilter = JsonParams.getJSONArray("mime");
+            thumbOptions = JsonParams.getJSONObject("thumb") == null ? new JSONObject() : JsonParams.getJSONObject("thumb");
             if (mimeFilter != null && mimeFilter.size() > 0) {
                 StringBuilder mimePlaceholder = new StringBuilder();
                 String[] mimeVal = new String[mimeFilter.size()];
@@ -124,7 +150,6 @@ public class Manager extends UniModule {
                 File.mimeSelection = " AND " + MediaStore.Files.FileColumns.MIME_TYPE + " NOT NULL ";
                 File.mimeSelectionArgs = null;
             }
-
             File.titleSelection = " AND " + (JsonParams.containsKey("name") ?
                     MediaStore.Files.FileColumns.TITLE + " LIKE '%" + JsonParams.getString("name") + "%' " : MediaStore.Files.FileColumns.TITLE + " NOT NULL");
         }
@@ -137,11 +162,10 @@ public class Manager extends UniModule {
         switch (type.toLowerCase()) {
             case "audio":
             case "video":
-                results = queryMedia(context, type, page, limit);
+                results = queryMedia(context, type, page, limit,thumbOptions);
                 break;
             case "image":
-                Boolean isHideThumb = JsonParams.getBoolean("isHideThumb");
-                results = queryImage(context, isHideThumb, page, limit);
+                results = queryImage(context, thumbOptions, page, limit);
                 break;
             default:
                 results = queryFile(context, page, limit);
@@ -164,11 +188,13 @@ public class Manager extends UniModule {
 
         String type = null;
         int limit = 0, page = 0;
+        JSONObject thumbOptions = new JSONObject();
         if (JsonParams instanceof JSONObject) {
             type = JsonParams.getString("type");
             limit = JsonParams.getIntValue("limit");
             page = JsonParams.getIntValue("page");
             JSONArray mimeFilter = JsonParams.getJSONArray("mime");
+            thumbOptions = JsonParams.getJSONObject("thumb") == null ? new JSONObject() : JsonParams.getJSONObject("thumb");
             if (mimeFilter != null && mimeFilter.size() > 0) {
                 StringBuilder mimePlaceholder = new StringBuilder();
                 String[] mimeVal = new String[mimeFilter.size()];
@@ -190,16 +216,17 @@ public class Manager extends UniModule {
         page = page == 0 ? 1 : page;
         limit = limit == 0 ? 10 : limit;
 
+
+
         JSONObject results;
 
         switch (type.toLowerCase()) {
             case "audio":
             case "video":
-                results = queryMedia(context, type, page, limit);
+                results = queryMedia(context, type, page, limit,thumbOptions);
                 break;
             case "image":
-                Boolean isHideThumb = JsonParams.getBoolean("isHideThumb");
-                results = queryImage(context, isHideThumb, page, limit);
+                results = queryImage(context,thumbOptions, page, limit);
                 break;
             default:
                 results = queryFile(context, page, limit);
@@ -214,18 +241,44 @@ public class Manager extends UniModule {
         return Count;
     }
 
+
+    // 清空缩略图缓存
+    @UniJSMethod(uiThread = false)
+    public void clearThumbs() {
+        String savePath = BaseInfo.sBaseFsAppsPath + BaseInfo.sCurrentAppOriginalAppid + "/" + BaseInfo.REAL_PRIVATE_DOC_DIR + "thumbs/";
+        java.io.File dir = new java.io.File(savePath);
+        if (dir.exists() && dir.isDirectory()) {
+            java.io.File[] files = dir.listFiles();
+            for (java.io.File file : files) {
+                //如果是文件直接删除
+                if (file.isFile()){
+                    file.delete();
+                }
+                //如果是文件夹 则当成file对象调用本方法进如该文件夹执行
+//                if (file.isDirectory()){
+//                    delectFile(file);
+//                }
+            }
+        }
+    }
+
+
+
+
+
     /**
      * @param id *文件ID
+     * @param thumbOptions *缩略图配置
      * @description 根据id获取对应的缩略图
      */
-    public String queryThumbs(Context context, int id) {
+    public String queryImgThumbs(Context context, int id, JSONObject thumbOptions) {
         String result = null;
         Cursor cursor = context.getContentResolver().query(MediaStore.Images.Thumbnails.EXTERNAL_CONTENT_URI,
                 new String[]{MediaStore.Images.Thumbnails.IMAGE_ID, MediaStore.Images.Thumbnails.DATA}
                 , MediaStore.Images.Thumbnails.IMAGE_ID + "=" + id, null, null);
         if (cursor != null) {
             while (cursor.moveToNext()) {
-                result = "file://" + cursor.getString((int) cursor.getColumnIndex(MediaStore.Images.Thumbnails.DATA));
+                result = Common.createImgThumb(cursor.getString((int) cursor.getColumnIndex(MediaStore.Images.Thumbnails.DATA)), id, thumbOptions);
             }
             cursor.close();
         }
@@ -235,19 +288,62 @@ public class Manager extends UniModule {
     /**
      * @param id       *文件ID
      * @param callback *返回值回调
+     * @param thumb *缩略图配置
      * @description 根据id获取对应的缩略图, 该函数专门暴露给uni以便单独调用
      */
     @UniJSMethod()
-    public void queryThumbs(int id, UniJSCallback callback) {
+    public void queryImgThumbs(int id, UniJSCallback callback, JSONObject thumb) {
         if (callback == null) return;
+        if (thumb == null) thumb = new JSONObject();
+        if (!Common.createDirectors(BaseInfo.sBaseFsAppsPath + BaseInfo.sCurrentAppOriginalAppid, BaseInfo.REAL_PRIVATE_DOC_DIR + "/thumbs")) {
+            callback.invoke(new JSONObject() {{
+                put("msg", "缩略图存储目录创建失败，请检查是否有对应权限");
+            }});
+            return;
+        }
+
         Cursor cursor = mUniSDKInstance.getContext().getContentResolver().query(MediaStore.Images.Thumbnails.EXTERNAL_CONTENT_URI,
                 new String[]{MediaStore.Images.Thumbnails.IMAGE_ID, MediaStore.Images.Thumbnails.DATA}
                 , MediaStore.Images.Thumbnails.IMAGE_ID + "=" + id, null, null);
+        String result = "";
+
         if (cursor != null) {
             while (cursor.moveToNext()) {
-                callback.invoke("file://" + cursor.getString((int) cursor.getColumnIndex(MediaStore.Images.Thumbnails.DATA)));
+                result = Common.createImgThumb(cursor.getString((int) cursor.getColumnIndex(MediaStore.Images.Thumbnails.DATA)), id, thumb);
             }
             cursor.close();
+            callback.invoke(result);
+        }
+    }
+
+    /**
+     * @param id       *文件ID
+     * @param callback *返回值回调
+     * @param thumb *缩略图配置
+     * @description 根据id获取对应的缩略图, 该函数专门暴露给uni以便单独调用
+     */
+    @UniJSMethod()
+    public void queryVideoThumbs(int id, UniJSCallback callback, JSONObject thumb) {
+        if (callback == null) return;
+        if (thumb == null) thumb = new JSONObject();
+        if (!Common.createDirectors(BaseInfo.sBaseFsAppsPath + BaseInfo.sCurrentAppOriginalAppid, BaseInfo.REAL_PRIVATE_DOC_DIR + "/thumbs")) {
+            callback.invoke(new JSONObject() {{
+                put("msg", "缩略图存储目录创建失败，请检查是否有对应权限");
+            }});
+            return;
+        }
+
+        Cursor cursor = mUniSDKInstance.getContext().getContentResolver().query(MediaStore.Video.Thumbnails.EXTERNAL_CONTENT_URI,
+                new String[]{MediaStore.Video.Thumbnails.VIDEO_ID, MediaStore.Video.Thumbnails.DATA}
+                , MediaStore.Video.Thumbnails.VIDEO_ID + "=" + id, null, null);
+        String result = "";
+
+        if (cursor != null) {
+            while (cursor.moveToNext()) {
+                result = Common.createVideoThumb(cursor.getString((int) cursor.getColumnIndex(MediaStore.Video.Thumbnails.DATA)), id, thumb);
+            }
+            cursor.close();
+            callback.invoke(result);
         }
     }
 
@@ -274,7 +370,13 @@ public class Manager extends UniModule {
     }
 
 
-    private JSONObject queryMedia(Context context, String type, int page, int limit) {
+    private JSONObject queryMedia(Context context, String type, int page, int limit, JSONObject thumbOptions) {
+        if (!Common.createDirectors(BaseInfo.sBaseFsAppsPath + BaseInfo.sCurrentAppOriginalAppid, BaseInfo.REAL_PRIVATE_DOC_DIR + "/thumbs")) {
+            return new JSONObject() {{
+                put("msg", "缩略图存储目录创建失败，请检查是否有对应权限");
+            }};
+        }
+
         Uri tableUri = type.equals("audio") ? MediaStore.Audio.Media.EXTERNAL_CONTENT_URI : MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
         List<String> projectionList = new ArrayList<>(Arrays.asList(File.baseProjection));
         projectionList.addAll(Media.videoAndAudioProjection);
@@ -297,6 +399,10 @@ public class Manager extends UniModule {
                     put("album", cursor.getString(albumColumn));
                     put("duration", cursor.getString(durationColumn));
                 }};
+                if (tableUri == MediaStore.Video.Media.EXTERNAL_CONTENT_URI && !Boolean.FALSE.equals(thumbOptions.getBoolean("enable"))) {
+                    String thumb = Common.createVideoThumb(cursor.getString(dataColumn), cursor.getInt(idColumn), thumbOptions);
+                    if (!thumb.equals(""))  MediaInfo.put("thumb", thumb);
+                }
                 list.add(new Media(fileInfo, cursor.getInt(idColumn), MediaInfo));
             }
             cursor.close();
@@ -307,7 +413,13 @@ public class Manager extends UniModule {
         }};
     }
 
-    private JSONObject queryImage(Context context, @Nullable Boolean isHideThumb, int page, int limit) {
+    private JSONObject queryImage(Context context, JSONObject thumbOptions, int page, int limit) {
+        if (!Common.createDirectors(BaseInfo.sBaseFsAppsPath + BaseInfo.sCurrentAppOriginalAppid, BaseInfo.REAL_PRIVATE_DOC_DIR + "/thumbs")) {
+            return new JSONObject() {{
+                put("msg", "缩略图存储目录创建失败，请检查是否有对应权限");
+            }};
+        }
+
         Uri tableUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
         List<String> projectionList = new ArrayList<>(Arrays.asList(File.baseProjection));
         projectionList.addAll(Media.imageProjection);
@@ -329,14 +441,15 @@ public class Manager extends UniModule {
                     put("height", cursor.getString(heightColumn));
                     put("width", cursor.getString(widthColumn));
                 }};
-                if (Boolean.FALSE.equals(isHideThumb) || isHideThumb == null) {
-                    String thumb = queryThumbs(context, id);
-                    MediaInfo.put("thumb", thumb);
+                if (!Boolean.FALSE.equals(thumbOptions.getBoolean("enable"))) {
+                    String thumb = queryImgThumbs(context, id, thumbOptions);
+                    if (!thumb.equals("")) MediaInfo.put("thumb", thumb);
                 }
                 list.add(new Media(fileInfo, id, MediaInfo));
             }
             cursor.close();
         }
+
         return new JSONObject() {{
             put("list", list);
             put("count", getCount(context, tableUri));
